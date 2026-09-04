@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Chat em Tempo Real</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #0a0a0f; color: #f4f4f5; display: grid; place-items: center; }
+    main { width: min(900px, 94vw); height: min(720px, 92vh); display: grid; grid-template-rows: auto 1fr auto; background: #15151f; border: 1px solid #30303d; border-radius: 18px; overflow: hidden; }
+    header { padding: 18px 22px; display: flex; justify-content: space-between; gap: 16px; align-items: center; background: #1d1d29; border-bottom: 1px solid #30303d; }
+    h1 { margin: 0; font-size: 1.2rem; }
+    .connection { display: flex; gap: 10px; font: .82rem ui-monospace, monospace; color: #a1a1aa; }
+    .pill { border: 1px solid #3f3f4d; border-radius: 999px; padding: 7px 11px; }
+    .connected { color: #34d399; border-color: #065f46; }
+    #messages { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    .message { max-width: 72%; padding: 10px 13px; background: #242433; border: 1px solid #383848; border-radius: 14px 14px 14px 3px; }
+    .message.own { align-self: flex-end; background: #00b894; color: #051b16; border-radius: 14px 14px 3px 14px; }
+    .meta { display: block; margin-top: 5px; font: .7rem ui-monospace, monospace; opacity: .7; }
+    .system { align-self: center; color: #a1a1aa; font-size: .85rem; }
+    form { padding: 16px; display: grid; grid-template-columns: 160px 1fr auto; gap: 10px; background: #1d1d29; border-top: 1px solid #30303d; }
+    input, button { border-radius: 10px; border: 1px solid #3f3f4d; padding: 12px; font: inherit; }
+    input { background: #111119; color: #f4f4f5; }
+    button { background: #00b894; color: #041713; font-weight: 700; cursor: pointer; }
+    button:disabled, input:disabled { opacity: .45; cursor: not-allowed; }
+    @media (max-width: 650px) { form { grid-template-columns: 1fr auto; } #user { grid-column: 1 / -1; } .connection { flex-direction: column; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>💬 Chat em Tempo Real</h1><small>Spring Boot · WebSocket · Redis</small></div>
+    <div class="connection">
+      <span id="status" class="pill">Conectando…</span>
+      <span id="server" class="pill">Servidor: —</span>
+      <span id="connection" class="pill">ID: —</span>
+    </div>
+  </header>
+  <section id="messages"><span class="system">Conectando ao chat…</span></section>
+  <form id="form">
+    <input id="user" aria-label="Seu nome" placeholder="Seu nome">
+    <input id="message" aria-label="Mensagem" placeholder="Digite sua mensagem…" disabled>
+    <button id="send" disabled>Enviar</button>
+  </form>
+</main>
+<script>
+  const statusElement = document.querySelector('#status');
+  const serverElement = document.querySelector('#server');
+  const connectionElement = document.querySelector('#connection');
+  const messagesElement = document.querySelector('#messages');
+  const userElement = document.querySelector('#user');
+  const messageElement = document.querySelector('#message');
+  const sendElement = document.querySelector('#send');
+  const formElement = document.querySelector('#form');
+  const names = ['Alice', 'Bob', 'Carlos', 'Diana', 'Eduardo', 'Fernanda'];
+  userElement.value = names[Math.floor(Math.random() * names.length)] + Math.floor(Math.random() * 100);
+
+  let socket;
+  let reconnectAttempt = 0;
+  let reconnectTimer;
+  let connectionTimer;
+  let connectionGeneration = 0;
+  let hasConnected = false;
+
+  function websocketUrl() {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = location.host || 'localhost:8080';
+    return `${protocol}//${host}/chatHub`;
+  }
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    clearTimeout(connectionTimer);
+    const generation = ++connectionGeneration;
+    setConnected(false, reconnectAttempt ? 'Reconectando…' : 'Conectando…');
+    const candidate = new WebSocket(websocketUrl());
+    socket = candidate;
+    connectionTimer = setTimeout(() => {
+      if (candidate.readyState === WebSocket.CONNECTING) candidate.close();
+    }, 10000);
+
+    candidate.onopen = () => {
+      if (generation !== connectionGeneration) return;
+      clearTimeout(connectionTimer);
+      reconnectAttempt = 0;
+      if (!hasConnected) messagesElement.innerHTML = '';
+      addSystemMessage(hasConnected ? 'Conexão restabelecida.' : 'Conectado ao chat!');
+      hasConnected = true;
+      setConnected(true, 'Conectado');
+    };
+    candidate.onmessage = event => {
+      if (generation !== connectionGeneration) return;
+      try { handleMessage(JSON.parse(event.data)); }
+      catch (error) { console.error('Mensagem inválida do servidor', error); }
+    };
+    candidate.onerror = () => {
+      if (generation === connectionGeneration) setConnected(false, 'Falha na conexão');
+    };
+    candidate.onclose = () => {
+      if (generation !== connectionGeneration) return;
+      clearTimeout(connectionTimer);
+      setConnected(false, 'Desconectado');
+      serverElement.textContent = 'Servidor: —';
+      connectionElement.textContent = 'ID: —';
+      const delays = [0, 2000, 5000, 10000];
+      const delay = delays[Math.min(reconnectAttempt++, delays.length - 1)];
+      statusElement.textContent = `Reconectando em ${Math.ceil(delay / 1000)}s…`;
+      reconnectTimer = setTimeout(connect, delay);
+    };
+  }
+
+  function handleMessage(payload) {
+    if (payload.type === 'SERVER_INFO') {
+      serverElement.textContent = `Servidor: ${payload.serverId}`;
+      connectionElement.textContent = `ID: ${payload.connectionId.slice(0, 12)}…`;
+    } else if (payload.type === 'RECEIVE_MESSAGE') {
+      addChatMessage(payload);
+    } else if (payload.type === 'ERROR') {
+      addSystemMessage(`Erro: ${payload.message}`);
+    }
+  }
+
+  function setConnected(connected, label) {
+    statusElement.textContent = label;
+    statusElement.classList.toggle('connected', connected);
+    messageElement.disabled = !connected;
+    sendElement.disabled = !connected;
+  }
+
+  function addChatMessage(payload) {
+    const element = document.createElement('div');
+    element.className = `message ${payload.user === userElement.value.trim() ? 'own' : ''}`;
+    const text = document.createElement('span');
+    text.textContent = payload.text;
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    meta.textContent = `${payload.user} · ${payload.serverId}`;
+    element.append(text, meta);
+    messagesElement.append(element);
+    messagesElement.scrollTop = messagesElement.scrollHeight;
+  }
+
+  function addSystemMessage(text) {
+    const element = document.createElement('span');
+    element.className = 'system';
+    element.textContent = text;
+    messagesElement.append(element);
+  }
+
+  formElement.addEventListener('submit', event => {
+    event.preventDefault();
+    const message = messageElement.value.trim();
+    const user = userElement.value.trim();
+    if (!user) {
+      addSystemMessage('Informe seu nome antes de enviar.');
+      userElement.focus();
+      return;
+    }
+    if (!message || !socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({type: 'SEND_MESSAGE', user, message}));
+    messageElement.value = '';
+  });
+
+  connect();
+</script>
+</body>
+</html>

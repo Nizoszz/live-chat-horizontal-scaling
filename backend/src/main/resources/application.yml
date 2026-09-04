@@ -1,0 +1,22 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: chat-api
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      connect-timeout: 5s
+      timeout: 5s
+
+chat:
+  server-id: ${SERVER_ID:Unknown}
+  redis-channel: ${REDIS_CHANNEL:chat:messages}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
