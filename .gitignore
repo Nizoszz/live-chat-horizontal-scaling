@@ -35,3 +35,6 @@ Thumbs.db
 reports/*.html
 reports/*.json
 
+# Local documentation
+docs/
+

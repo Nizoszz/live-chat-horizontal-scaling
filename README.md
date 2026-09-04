@@ -11,8 +11,6 @@ Chat em tempo real em Java 21 e Spring Boot, com três instâncias da API atrás
 
 Cada conexão permanece na instância escolhida. Ao receber uma mensagem, a API publica no Redis. Todas as instâncias, inclusive a publicadora, recebem o evento e o distribuem às sessões locais. Isso garante uma entrega por cliente sem sticky session.
 
-Consulte os [diagramas C4](docs/README.md).
-
 ## Executar
 
 ```bash
