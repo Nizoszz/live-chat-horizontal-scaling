@@ -21,42 +21,50 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final SendChatMessageUseCase sendMessage;
     private final ClientSessionRegistry sessions;
+    private final WebSocketMessageSender sender;
     private final ChatProperties properties;
 
     public ChatWebSocketHandler(
             ObjectMapper objectMapper,
             SendChatMessageUseCase sendMessage,
             ClientSessionRegistry sessions,
+            WebSocketMessageSender sender,
             ChatProperties properties) {
         this.objectMapper = objectMapper;
         this.sendMessage = sendMessage;
         this.sessions = sessions;
+        this.sender = sender;
         this.properties = properties;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws IOException {
         sessions.register(session);
-        sessions.sendServerInfo(session.getId(), properties.serverId());
+        try {
+            sender.sendServerInfo(session.getId(), properties.serverId());
+        } catch (IOException | RuntimeException exception) {
+            sessions.closeAndRemove(session.getId());
+            throw exception;
+        }
     }
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws IOException {
         try {
             var inbound = objectMapper.readValue(message.getPayload(), InboundMessage.class);
-            if (!"SEND_MESSAGE".equals(inbound.type())) {
-                sessions.sendError(session.getId(), "UNSUPPORTED_MESSAGE_TYPE", "Expected SEND_MESSAGE");
+            if (inbound.type() != MessageType.SEND_MESSAGE) {
+                sender.sendError(session.getId(), ErrorCode.UNSUPPORTED_MESSAGE_TYPE, "Expected SEND_MESSAGE");
                 return;
             }
             sendMessage.execute(inbound.user(), inbound.message());
         } catch (IllegalArgumentException exception) {
-            sessions.sendError(session.getId(), "INVALID_MESSAGE", exception.getMessage());
+            sender.sendError(session.getId(), ErrorCode.INVALID_MESSAGE, exception.getMessage());
         } catch (JacksonException exception) {
             LOGGER.debug("Invalid WebSocket payload", exception);
-            sessions.sendError(session.getId(), "INVALID_MESSAGE", "Malformed JSON payload");
+            sender.sendError(session.getId(), ErrorCode.INVALID_MESSAGE, "Malformed JSON payload");
         } catch (RuntimeException exception) {
             LOGGER.error("Could not process WebSocket message", exception);
-            sessions.sendError(session.getId(), "MESSAGE_PROCESSING_FAILED", "Message could not be processed");
+            sender.sendError(session.getId(), ErrorCode.MESSAGE_PROCESSING_FAILED, "Message could not be processed");
         }
     }
 

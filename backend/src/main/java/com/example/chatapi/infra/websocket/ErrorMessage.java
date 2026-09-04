@@ -1,4 +1,4 @@
 package com.example.chatapi.infra.websocket;
 
-record ErrorMessage(String type, String code, String message) {
+record ErrorMessage(MessageType type, ErrorCode code, String message) {
 }

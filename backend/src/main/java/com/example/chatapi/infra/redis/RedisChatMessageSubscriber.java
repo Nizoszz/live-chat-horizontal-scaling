@@ -2,6 +2,7 @@ package com.example.chatapi.infra.redis;
 
 import com.example.chatapi.application.usecase.BroadcastReceivedMessageUseCase;
 import com.example.chatapi.domain.ChatMessage;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,8 +26,10 @@ public class RedisChatMessageSubscriber implements MessageListener {
     public void onMessage(Message message, byte[] pattern) {
         try {
             useCase.execute(objectMapper.readValue(message.getBody(), ChatMessage.class));
-        } catch (Exception exception) {
+        } catch (JacksonException | IllegalArgumentException exception) {
             LOGGER.warn("Discarding invalid message received from Redis", exception);
+        } catch (RuntimeException exception) {
+            LOGGER.error("Could not broadcast message received from Redis", exception);
         }
     }
 }

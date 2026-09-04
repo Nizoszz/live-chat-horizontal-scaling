@@ -11,8 +11,10 @@ import org.springframework.web.socket.WebSocketSession;
 
 import java.time.Clock;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,11 +22,13 @@ class ChatWebSocketHandlerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ChatMessagePublisher publisher = mock(ChatMessagePublisher.class);
     private final WebSocketSession session = mock(WebSocketSession.class);
-    private final ClientSessionRegistry registry = new ClientSessionRegistry(objectMapper);
+    private final ClientSessionRegistry registry = new ClientSessionRegistry();
+    private final WebSocketMessageSender sender = new WebSocketMessageSender(registry, objectMapper);
     private final ChatWebSocketHandler handler = new ChatWebSocketHandler(
             objectMapper,
             new SendChatMessageUseCase(publisher, "Server-1", Clock.systemUTC()),
             registry,
+            sender,
             new ChatProperties("Server-1", "chat:messages"));
 
     @BeforeEach
@@ -63,5 +67,16 @@ class ChatWebSocketHandlerTest {
                 .toList();
         assertThat(messages).anyMatch(payload -> payload.contains("INVALID_MESSAGE"));
         assertThat(org.mockito.Mockito.mockingDetails(publisher).getInvocations()).isEmpty();
+    }
+
+    @Test
+    void removesAndClosesSessionWhenInitializationFails() throws Exception {
+        doThrow(new java.io.IOException("send failed")).when(session).sendMessage(org.mockito.ArgumentMatchers.any());
+
+        assertThatThrownBy(() -> handler.afterConnectionEstablished(session))
+                .isInstanceOf(java.io.IOException.class);
+
+        verify(session).close();
+        assertThat(registry.find("connection-1")).isNull();
     }
 }

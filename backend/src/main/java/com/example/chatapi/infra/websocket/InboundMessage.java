@@ -1,4 +1,4 @@
 package com.example.chatapi.infra.websocket;
 
-record InboundMessage(String type, String user, String message) {
+record InboundMessage(MessageType type, String user, String message) {
 }
